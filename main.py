@@ -16,6 +16,19 @@ class SearchRequest(BaseModel):
     api_key: str
     email_addresses: List[EmailStr]  # EmailStrでメールアドレスの形式を検証
 
+def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
+    """
+    ネストされた辞書を平坦化する関数
+    """
+    items = []
+    for k, v in data.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
 def search_customers_by_email(api_key: str, email_addresses: List[str]):
     # StripeのAPIキーを設定
     stripe.api_key = api_key
@@ -33,11 +46,14 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
             logger.error(f"Unexpected error during search for {email}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for {email}: {str(e)}")
 
-        # 顧客IDを "id" から "cus_id" に変更
+        # 顧客IDを "id" から "cus_id" に変更し、ネストを平坦化
         for customer in customers:
             customer_dict = customer.to_dict()  # Stripeオブジェクトを辞書に変換
             customer_dict['cus_id'] = customer_dict.pop('id')  # "id"を"cus_id"に変更
-            results.append(customer_dict)  # 各顧客情報をリストに追加
+
+            # ネストされた辞書を平坦化
+            flat_customer = flatten_dict(customer_dict)
+            results.append(flat_customer)  # 各顧客情報をリストに追加
 
     return {"records": results}  # リスト全体を "records" キーに含める
 
