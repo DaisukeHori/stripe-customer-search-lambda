@@ -66,3 +66,4 @@ def get_customers(api_key: str = Query(..., description="Stripe API key"),
 # Lambda用のハンドラー
 handler = Mangum(app)
 
+#同期テスト用
