@@ -25,6 +25,9 @@ def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
             items.extend(flatten_dict(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            # リストの場合はカンマ区切りで文字列に変換
+            items.append((new_key, ', '.join(map(str, v)) if v else None))
         else:
             items.append((new_key, v))
     return dict(items)
