@@ -19,6 +19,9 @@ Resources:
       Environment:
         Variables:
           ENV: "production"
+      # 既存リソースを保持する設定を追加
+      DeletionPolicy: Retain
+
 Outputs:
   FastApiFunctionApi:
     Description: "API Gateway endpoint URL"
