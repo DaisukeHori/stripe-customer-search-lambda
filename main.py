@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
-from typing import List
+from typing import List, Optional
 import stripe
 import logging
 from pydantic import BaseModel, EmailStr, ValidationError
@@ -43,17 +43,23 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
 
 @app.get("/search_customers")
 def get_customers(api_key: str = Query(..., description="Stripe API key"),
-                  email_addresses: str = Query(..., description="Comma separated list of email addresses")):
+                  email_addresses: Optional[str] = Query(None, description="Comma separated list of email addresses")):
     try:
-        # メールアドレスをカンマで区切ってリストに変換
-        email_list = [email.strip() for email in email_addresses.split(',')]
+        # email_addressesが指定されていない場合、デフォルトで "xxxxx@xxx.com" を使用
+        if email_addresses is None:
+            email_list = ["xxxxx@xxx.com"]
+        else:
+            # メールアドレスをカンマで区切ってリストに変換
+            email_list = [email.strip() for email in email_addresses.split(',')]
 
         # EmailStrを使って各メールアドレスのバリデーションを実施
         validated_request = SearchRequest(api_key=api_key, email_addresses=email_list)
 
         # Stripe APIを使用して顧客情報を取得
         customers = search_customers_by_email(validated_request.api_key, validated_request.email_addresses)
-        return customers
+
+        # JSONの形式を "records" 配列の中に入れる
+        return {"records": customers}
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
@@ -65,5 +71,3 @@ def get_customers(api_key: str = Query(..., description="Stripe API key"),
 
 # Lambda用のハンドラー
 handler = Mangum(app)
-
-#同期テスト用
