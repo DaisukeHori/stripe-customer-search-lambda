@@ -1,0 +1,44 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches:
+      - master  # ここでmainではなくmasterブランチで動作するように変更可能
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install AWS SAM CLI
+      run: |
+        curl -Lo aws-sam-cli-linux.zip https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
+        unzip aws-sam-cli-linux.zip -d sam-installation
+        sudo ./sam-installation/install --update
+
+    - name: Clean up virtual environment (if any)
+      run: |
+        rm -rf venv  # ローカル仮想環境を削除する（GitHub環境には不要）
+
+    - name: Build and deploy SAM application
+      run: |
+        sam build  # ビルド実行
+        sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name stripe-customer-search-lambda --capabilities CAPABILITY_IAM
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: "ap-northeast-1"  # AWSリージョンの指定
+
