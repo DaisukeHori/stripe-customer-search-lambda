@@ -4,6 +4,7 @@ Resources:
   FastApiFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: stripe-fastapi-stack-FastApiFunction-SYnABSZ9GUrb # 既存のLambda関数名を指定
       Handler: main.handler  # Lambdaハンドラー
       Runtime: python3.9    # Lambdaで使用するPythonのバージョン
       CodeUri: .
