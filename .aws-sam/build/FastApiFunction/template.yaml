@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  FastApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: main.handler  # Lambdaハンドラー
+      Runtime: python3.9    # Lambdaで使用するPythonのバージョン
+      CodeUri: .
+      MemorySize: 128       # Lambdaのメモリサイズ
+      Timeout: 30           # タイムアウト時間
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /{proxy+}   # API Gatewayのエンドポイント
+            Method: ANY       # 全てのHTTPメソッドを許可
+      Environment:
+        Variables:
+          ENV: "production"
+Outputs:
+  FastApiFunctionApi:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+
