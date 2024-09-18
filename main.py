@@ -39,7 +39,7 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
             customer_dict['cus_id'] = customer_dict.pop('id')  # "id"を"cus_id"に変更
             results.append(customer_dict)  # 各顧客情報をリストに追加
 
-    return results  # リスト全体を返す
+    return {"records": results}  # リスト全体を "records" キーに含める
 
 @app.get("/search_customers")
 def get_customers(api_key: str = Query(..., description="Stripe API key"),
@@ -59,7 +59,7 @@ def get_customers(api_key: str = Query(..., description="Stripe API key"),
         customers = search_customers_by_email(validated_request.api_key, validated_request.email_addresses)
 
         # JSONの形式を "records" 配列の中に入れる
-        return {"records": customers}
+        return customers
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
