@@ -4,10 +4,10 @@ Resources:
   FastApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: stripe-fastapi-stack-FastApiFunction-SYnABSZ9GUrb # 既存のLambda関数名を指定
+      FunctionName: stripe-fastapi-stack-FastApiFunction-SYnABSZ9GUrb # 既存のLambda関数名
       Handler: main.handler  # Lambdaハンドラー
       Runtime: python3.9    # Lambdaで使用するPythonのバージョン
-      CodeUri: .
+      CodeUri: .            # Lambda関数のコードが格納されているディレクトリ
       MemorySize: 128       # Lambdaのメモリサイズ
       Timeout: 30           # タイムアウト時間
       Events:
@@ -19,11 +19,8 @@ Resources:
       Environment:
         Variables:
           ENV: "production"
-      # 既存リソースを保持する設定を追加
-      DeletionPolicy: Retain
 
 Outputs:
   FastApiFunctionApi:
     Description: "API Gateway endpoint URL"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
-
