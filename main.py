@@ -182,18 +182,26 @@ def get_subscriptions(api_key: str = Query(..., description="Stripe API key"),
 
 @app.get("/search_subscription_items")
 def get_subscription_items(api_key: str = Query(..., description="Stripe API key"),
-                           subscription_id: Optional[str] = Query(None, description="Subscription ID")):
+                           subscription_ids: Optional[str] = Query(None, description="Comma separated list of Subscription IDs")):
     try:
-        # subscription_idが指定されていない場合、デフォルトで 'sub_1OOVw0APdno01lSPQNcrQCSC' を使用
-        if subscription_id is None or subscription_id.strip() == "":
-            subscription_id = "sub_1OOVw0APdno01lSPQNcrQCSC"
+        # subscription_idsが指定されていない場合、デフォルトで 'sub_1OOVw0APdno01lSPQNcrQCSC' を使用
+        if subscription_ids is None or subscription_ids.strip() == "":
+            subscription_id_list = ["sub_1OOVw0APdno01lSPQNcrQCSC"]
+        else:
+            # カンマ区切りのsubscription_idsをリストに変換
+            subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
 
-        # サブスクリプションIDでサブスクリプションのitemsを検索
-        validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_id=subscription_id)
-        subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_id)
+        results = []
+        for subscription_id in subscription_id_list:
+            # サブスクリプションIDでサブスクリプションのitemsを検索
+            validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_id=subscription_id)
+            subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_id)
 
-        # フラット化されたサブスクリプションアイテムを返す
-        return subscription_items
+            # 各サブスクリプションIDの結果をリストに追加
+            results.extend(subscription_items["records"])
+
+        # フラット化されたサブスクリプションアイテムのリストを返す
+        return {"records": results}
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
@@ -202,6 +210,7 @@ def get_subscription_items(api_key: str = Query(..., description="Stripe API key
     except Exception as e:
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
 
 
 # Lambda用のハンドラー
