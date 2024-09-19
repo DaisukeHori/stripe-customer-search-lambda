@@ -1,72 +1,23 @@
 ---
 
-# Stripe Customer Search Lambda
+# Stripe Customer and Subscription Search API
 
-このプロジェクトは、**AWS Lambda** 上で動作する **FastAPI** アプリケーションを使って、Stripe API を通じて顧客情報を検索するためのサービスです。AWS API Gateway を通じて公開され、特定のメールアドレスに基づいて Stripe の顧客情報を検索できます。
+このプロジェクトは、**AWS Lambda** 上で動作する **FastAPI** アプリケーションを使用して、**Stripe** 顧客情報およびサブスクリプション情報を検索するためのAPIです。**AWS API Gateway** を通じて公開され、メールアドレスまたは顧客IDをもとに顧客およびサブスクリプション情報を検索します。
 
 ## 機能概要
 
-- **Stripe API** を使用して、指定されたメールアドレスから顧客を検索
-- 顧客情報をフラットな形式で返却し、ネストされたフィールドもすべて平坦化
-- AWS Lambda 上で動作し、**FastAPI** を使用
-- **Mangum** を使用して、AWS Lambda と FastAPI の統合を実現
-- 入力されたメールアドレスがない場合、デフォルトのメールアドレスで検索
+- メールアドレスから顧客情報を取得
+- 顧客IDからサブスクリプション情報を取得
+- 検索結果はフラットな形式で返され、ネストされたフィールドが平坦化されます
+- パラメータが空の場合、デフォルトのメールアドレスや顧客IDで検索
 
-## 使い方
+## エンドポイント
 
-### 必要条件
+### 1. 顧客情報検索: `/search_customers`
 
-- AWSアカウント
-- Stripe API キー
-- Python 3.9+
-- AWS SAM CLI
-
-### デプロイ手順
-
-1. **リポジトリのクローン**
-
-   ```bash
-   git clone https://github.com/ユーザー名/リポジトリ名.git
-   cd リポジトリ名
-   ```
-
-2. **依存関係のインストール**
-
-   仮想環境を作成して、依存関係をインストールします。
-
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. **AWS SAM を使用してビルドとデプロイ**
-
-   AWS SAM を使用してアプリケーションをビルドし、AWS Lambda にデプロイします。
-
-   ```bash
-   sam build
-   sam deploy --guided
-   ```
-
-   デプロイ時にいくつかの質問が表示されるため、スタック名やリージョンなどを指定します。`AWS_ACCESS_KEY_ID` と `AWS_SECRET_ACCESS_KEY` も必要です。
-
-4. **API エンドポイントの確認**
-
-   デプロイが成功すると、API Gatewayのエンドポイントが表示されます。これを使って API を呼び出すことができます。
-
-### API の使用方法
-
-#### エンドポイント
-
-- `GET /search_customers`
-
-#### クエリパラメータ
-
-| パラメータ        | 説明                                                               |
-| ----------------- | ------------------------------------------------------------------ |
-| `api_key`         | Stripe APIキー                                                     |
-| `email_addresses` | 検索するカンマ区切りのメールアドレスリスト。指定しない場合はデフォルトで `xxxxx@xxx.com` が使用されます。 |
+- メールアドレスを基に顧客情報を検索します。
+- **クエリパラメータ**: `api_key`（Stripe APIキー）、`email_addresses`（カンマ区切りのメールアドレス）
+- **デフォルト動作**: `email_addresses` が指定されていない場合、`hori@revol.co.jp` をデフォルトで検索します。
 
 #### 例
 
@@ -74,9 +25,14 @@
 curl "https://your-api-endpoint.com/search_customers?api_key=your-stripe-api-key&email_addresses=test@example.com"
 ```
 
-### レスポンス形式
+#### パラメータ詳細
 
-APIは、以下のようなフラットな顧客情報の配列を返します。
+| パラメータ        | 説明                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| `api_key`         | Stripe APIキー                                                     |
+| `email_addresses` | カンマ区切りのメールアドレス（指定がない場合、`hori@revol.co.jp` が使用されます） |
+
+#### レスポンス例
 
 ```json
 {
@@ -84,37 +40,112 @@ APIは、以下のようなフラットな顧客情報の配列を返します�
     {
       "object": "customer",
       "email": "test@example.com",
+      "cus_id": "cus_ABC12345",
       "name": "テストユーザー",
       "address_city": "テストシティ",
-      "metadata_サロン名": "テストサロン",
-      "cus_id": "cus_ABC12345"
+      "metadata_サロン名": "テストサロン"
+      // その他のフラットな顧客情報
     }
   ]
 }
 ```
 
-### 開発環境の設定
+### 2. サブスクリプション検索: `/search_subscriptions`
 
-#### ローカルでの実行
+- 顧客IDを基にサブスクリプション情報を検索します。
+- **クエリパラメータ**: `api_key`（Stripe APIキー）、`cus_ids`（カンマ区切りの顧客ID）
+- **デフォルト動作**: `cus_ids` が指定されていない場合、`cus_PCvnk7s61noGQW` をデフォルトで検索します。
 
-ローカル環境でサーバーを立ち上げるには、以下のコマンドを実行してください。
+#### 例
+
+```bash
+curl "https://your-api-endpoint.com/search_subscriptions?api_key=your-stripe-api-key&cus_ids=cus_ABC12345,cus_DEF67890"
+```
+
+#### パラメータ詳細
+
+| パラメータ | 説明                                                            |
+| ---------- | --------------------------------------------------------------- |
+| `api_key`  | Stripe APIキー                                                   |
+| `cus_ids`  | カンマ区切りの顧客ID（指定がない場合、`cus_PCvnk7s61noGQW` が使用されます） |
+
+#### レスポンス例
+
+```json
+{
+  "records": [
+    {
+      "object": "subscription",
+      "cus_id": "cus_ABC12345",
+      "status": "active",
+      "items": "プロダクト1, プロダクト2",
+      "start_date": 1609459200,
+      "current_period_end": 1612137600
+      // その他のフラットなサブスクリプション情報
+    }
+  ]
+}
+```
+
+## セットアップ
+
+### 必要条件
+
+- AWSアカウント
+- Stripe APIキー
+- Python 3.9+
+- AWS SAM CLI
+
+### プロジェクトのクローン
+
+リポジトリをクローンして、プロジェクトディレクトリに移動します。
+
+```bash
+git clone https://github.com/your-username/stripe-customer-subscription-search.git
+cd stripe-customer-subscription-search
+```
+
+### 依存関係のインストール
+
+仮想環境を作成し、必要な依存関係をインストールします。
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### デプロイ手順
+
+AWS SAM CLI を使用して Lambda にデプロイします。
+
+1. ビルド
+
+   ```bash
+   sam build
+   ```
+
+2. デプロイ
+
+   ```bash
+   sam deploy --guided
+   ```
+
+3. デプロイ後、API Gatewayエンドポイントが表示されます。
+
+### ローカルでの実行
+
+ローカル環境でFastAPIを実行してテストできます。
 
 ```bash
 uvicorn main:app --reload
 ```
 
-これで、`http://127.0.0.1:8000` でローカルサーバーが起動し、APIをテストできます。
-
-### 注意事項
-
-- Stripe API キーの管理には十分に注意してください。特に、公開リポジトリにキーをハードコーディングしないようにしてください。
-- このアプリケーションは AWS Lambda 上で動作することを前提としており、ローカルでの開発は SAM CLI を使用することを推奨します。
-
-## 技術スタック
+## 開発環境
 
 - **Python 3.9**
 - **FastAPI**
-- **Mangum**（FastAPIとAWS Lambdaの統合）
+- **Mangum**（AWS Lambda と FastAPI の統合）
 - **Stripe API**
 
 ## ライセンス
@@ -122,3 +153,14 @@ uvicorn main:app --reload
 このプロジェクトはMITライセンスのもとで公開されています。
 
 ---
+
+### 説明
+
+- **機能概要**: このプロジェクトの機能を説明し、APIエンドポイントの使い方を詳細に記載しています。
+- **使い方**: クローンから依存関係のインストール、デプロイ手順までのセットアップ方法を示しています。
+- **エンドポイントの使用方法**: 顧客情報とサブスクリプション情報を検索するためのAPIエンドポイントを説明しています。
+
+## エンドポイント
+https://o9e8gvcjdh.execute-api.ap-northeast-1.amazonaws.com/prod/
+## Lambda
+https://ap-northeast-1.console.aws.amazon.com/lambda/home?region=ap-northeast-1#/functions/stripe-customer-search-lambda-FastApiFunction-6HzYFQP389Nb/aliases/production?tab=configure
