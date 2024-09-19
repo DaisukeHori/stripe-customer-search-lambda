@@ -4,12 +4,16 @@ import stripe
 import logging
 from pydantic import BaseModel, EmailStr, ValidationError
 from mangum import Mangum  # Mangumのインポート
+from datetime import datetime, timezone, timedelta  # タイムゾーン変換用
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# JSTのタイムゾーン設定
+JST = timezone(timedelta(hours=9))
 
 # Pydanticで入力バリデーションのクラスを作成
 class SearchRequest(BaseModel):
@@ -33,6 +37,10 @@ def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
             # リストの場合はカンマ区切りで文字列に変換
             items.append((new_key, ', '.join(map(str, v)) if v else None))
         else:
+            # UNIXタイムスタンプを検出し、JSTに変換
+            if new_key in ['billing_cycle_anchor', 'created', 'current_period_end', 'current_period_start', 'start_date', 'trial_end', 'trial_start']:
+                # UNIXタイムスタンプをJSTに変換
+                v = datetime.fromtimestamp(v, tz=timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M:%S')
             items.append((new_key, v))
     return dict(items)
 
@@ -81,7 +89,7 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
             logger.error(f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
 
-        # ネストを平坦化
+        # ネストを平坦化し、タイムスタンプをJSTに変換
         for subscription in subscriptions:
             subscription_dict = subscription.to_dict()  # Stripeオブジェクトを辞書に変換
             flat_subscription = flatten_dict(subscription_dict)
