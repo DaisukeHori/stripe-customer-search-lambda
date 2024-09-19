@@ -24,6 +24,10 @@ class SubscriptionSearchRequest(BaseModel):
     api_key: str
     cus_ids: List[str]  # 複数の顧客IDを受け取る
 
+class SubscriptionItemSearchRequest(BaseModel):
+    api_key: str
+    subscription_id: str  # 単一のサブスクリプションID
+
 # フラット化のための関数
 def flatten_json(nested_json, parent_key='', sep='_'):
     """
@@ -48,15 +52,37 @@ def flatten_json(nested_json, parent_key='', sep='_'):
             items.append((new_key, v))
     return dict(items)
 
-def search_customers_by_email(api_key: str, email_addresses: List[str]):
+# サブスクリプションIDでItemsデータを1階層だけフラット化して返す関数
+def search_subscription_items_by_id(api_key: str, subscription_id: str):
     # StripeのAPIキーを設定
     stripe.api_key = api_key
 
-    results = []  # すべての結果をリストでまとめる
+    try:
+        # サブスクリプションIDでサブスクリプションを検索
+        subscription = stripe.Subscription.retrieve(subscription_id)
+
+        # items.data 内の要素を1階層だけフラット化
+        flattened_items = []
+        for item in subscription['items']['data']:
+            flattened_items.append(flatten_json(item))
+
+        return {"records": flattened_items}  # フラット化されたデータを返す
+
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+
+# 顧客のメールアドレスで顧客情報を検索
+def search_customers_by_email(api_key: str, email_addresses: List[str]):
+    stripe.api_key = api_key
+
+    results = []
 
     for email in email_addresses:
         try:
-            # Stripe APIの顧客検索を行う
             customers = stripe.Customer.list(email=email).data
         except stripe.error.StripeError as e:
             logger.error(f"Stripe API error for email {email}: {str(e)}")
@@ -65,26 +91,22 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
             logger.error(f"Unexpected error during search for {email}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for {email}: {str(e)}")
 
-        # 顧客IDを "id" から "cus_id" に変更し、ネストを平坦化
         for customer in customers:
-            customer_dict = customer.to_dict()  # Stripeオブジェクトを辞書に変換
-            customer_dict['cus_id'] = customer_dict.pop('id')  # "id"を"cus_id"に変更
-
-            # ネストされた辞書をフラット化
+            customer_dict = customer.to_dict()
+            customer_dict['cus_id'] = customer_dict.pop('id')
             flat_customer = flatten_json(customer_dict)
-            results.append(flat_customer)  # 各顧客情報をリストに追加
+            results.append(flat_customer)
 
-    return {"records": results}  # リスト全体を "records" キーに含める
+    return {"records": results}
 
+# 顧客IDでサブスクリプション情報を検索
 def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
-    # StripeのAPIキーを設定
     stripe.api_key = api_key
 
-    results = []  # すべての結果をリストでまとめる
+    results = []
 
     for cus_id in cus_ids:
         try:
-            # Stripe APIのサブスクリプション検索を行う
             subscriptions = stripe.Subscription.list(customer=cus_id).data
         except stripe.error.StripeError as e:
             logger.error(f"Stripe API error for customer ID {cus_id}: {str(e)}")
@@ -93,38 +115,29 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
             logger.error(f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
 
-        # ネストを平坦化し、タイムスタンプをJSTに変換
         for subscription in subscriptions:
-            subscription_dict = subscription.to_dict()  # Stripeオブジェクトを辞書に変換
-            flat_subscription = flatten_json(subscription_dict)
-            results.append(flat_subscription)  # 各サブスクリプション情報をリストに追加
+            flat_subscription = flatten_json(subscription.to_dict())
+            results.append(flat_subscription)
 
-    return {"records": results}  # リスト全体を "records" キーに含める
+    return {"records": results}
 
 @app.get("/search_customers")
 def get_customers(api_key: str = Query(..., description="Stripe API key"),
                   email_addresses: Optional[str] = Query(None, description="Comma separated list of email addresses")):
     try:
-        # email_addressesが指定されていない場合、デフォルトで "hori@revol.co.jp" を使用
         if email_addresses is None or email_addresses.strip() == "":
             email_list = ["hori@revol.co.jp"]
         else:
-            # メールアドレスをカンマで区切ってリストに変換
             email_list = [email.strip() for email in email_addresses.split(',')]
 
-        # EmailStrを使って各メールアドレスのバリデーションを実施
         validated_request = SearchRequest(api_key=api_key, email_addresses=email_list)
-
-        # Stripe APIを使用して顧客情報を取得
         customers = search_customers_by_email(validated_request.api_key, validated_request.email_addresses)
-
-        # JSONの形式を "records" 配列の中に入れる
         return customers
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
     except HTTPException as e:
-        raise e  # 既に処理されたHTTP例外はそのまま伝播させる
+        raise e
     except Exception as e:
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
@@ -133,26 +146,35 @@ def get_customers(api_key: str = Query(..., description="Stripe API key"),
 def get_subscriptions(api_key: str = Query(..., description="Stripe API key"),
                       cus_ids: Optional[str] = Query(None, description="Comma separated list of customer IDs")):
     try:
-        # cus_idsが指定されていない場合、デフォルトで "cus_PCvnk7s61noGQW" を使用
         if cus_ids is None or cus_ids.strip() == "":
             cus_id_list = ["cus_PCvnk7s61noGQW"]
         else:
-            # カンマ区切りのcus_idsをリストに変換
             cus_id_list = [cus_id.strip() for cus_id in cus_ids.split(',')]
 
-        # cus_ids のバリデーションを実施
         validated_request = SubscriptionSearchRequest(api_key=api_key, cus_ids=cus_id_list)
-
-        # Stripe APIを使用してサブスクリプション情報を取得
         subscriptions = search_subscriptions_by_customer_ids(validated_request.api_key, validated_request.cus_ids)
-
-        # JSONの形式を "records" 配列の中に入れる
         return subscriptions
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
     except HTTPException as e:
-        raise e  # 既に処理されたHTTP例外はそのまま伝播させる
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
+@app.get("/search_subscription_items")
+def get_subscription_items(api_key: str = Query(..., description="Stripe API key"),
+                           subscription_id: str = Query(..., description="Subscription ID")):
+    try:
+        validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_id=subscription_id)
+        subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_id)
+        return subscription_items
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
     except Exception as e:
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
