@@ -26,8 +26,6 @@ class SubscriptionSearchRequest(BaseModel):
 
 from datetime import datetime, timezone, timedelta
 
-# JSTのタイムゾーン設定
-JST = timezone(timedelta(hours=9))
 
 def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
     """
