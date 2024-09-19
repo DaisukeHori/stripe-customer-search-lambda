@@ -24,39 +24,29 @@ class SubscriptionSearchRequest(BaseModel):
     api_key: str
     cus_ids: List[str]  # 複数の顧客IDを受け取る
 
-from datetime import datetime, timezone, timedelta
-
-
-def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
+# フラット化のための関数
+def flatten_json(nested_json, parent_key='', sep='_'):
     """
-    ネストされた辞書を再帰的に平坦化し、リストはカンマ区切りの文字列に変換する関数。
-    特定のキーにあるUNIXタイムスタンプをJSTでの日時に変換する機能付き。
+    ネストされたJSONをフラット化する再帰的な関数
     """
     items = []
-    for k, v in data.items():
+    for k, v in nested_json.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        
         if isinstance(v, dict):
-            # 辞書の場合は再帰的にフラット化
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        
+            items.extend(flatten_json(v, new_key, sep=sep).items())
         elif isinstance(v, list):
-            # リストが空でない場合、カンマ区切りの文字列に変換
-            if len(v) > 0:
-                items.append((new_key, ','.join(map(str, v))))
-            else:
-                # 空のリストはNoneにする
-                items.append((new_key, None))
-        
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    items.extend(flatten_json(item, f"{new_key}_{i}", sep=sep).items())
+                else:
+                    items.append((f"{new_key}_{i}", item))
         else:
             # UNIXタイムスタンプをJSTに変換する特定のキーをチェック
             if new_key in ['billing_cycle_anchor', 'created', 'current_period_end', 'current_period_start', 'start_date', 'trial_end', 'trial_start']:
                 # UNIXタイムスタンプをJSTに変換
                 v = datetime.fromtimestamp(v, tz=timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M:%S')
             items.append((new_key, v))
-    
     return dict(items)
-
 
 def search_customers_by_email(api_key: str, email_addresses: List[str]):
     # StripeのAPIキーを設定
@@ -80,8 +70,8 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
             customer_dict = customer.to_dict()  # Stripeオブジェクトを辞書に変換
             customer_dict['cus_id'] = customer_dict.pop('id')  # "id"を"cus_id"に変更
 
-            # ネストされた辞書を平坦化
-            flat_customer = flatten_dict(customer_dict)
+            # ネストされた辞書をフラット化
+            flat_customer = flatten_json(customer_dict)
             results.append(flat_customer)  # 各顧客情報をリストに追加
 
     return {"records": results}  # リスト全体を "records" キーに含める
@@ -106,7 +96,7 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
         # ネストを平坦化し、タイムスタンプをJSTに変換
         for subscription in subscriptions:
             subscription_dict = subscription.to_dict()  # Stripeオブジェクトを辞書に変換
-            flat_subscription = flatten_dict(subscription_dict)
+            flat_subscription = flatten_json(subscription_dict)
             results.append(flat_subscription)  # 各サブスクリプション情報をリストに追加
 
     return {"records": results}  # リスト全体を "records" キーに含める
