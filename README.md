@@ -65,7 +65,7 @@
 
 #### パラメータ
 - `api_key`: StripeのAPIキー（必須）
-- `subscription_id`: サブスクリプションID（省略可能、デフォルト: `"sub_1OOVw0APdno01lSPQNcrQCSC"`）
+- `subscription_ids`: カンマ区切りのサブスクリプションID（省略可能、デフォルト: `"sub_1OOVw0APdno01lSPQNcrQCSC"`）
 
 #### レスポンス例
 ```json
@@ -79,9 +79,19 @@
       "price_amount": 1000,
       "currency": "jpy",
       ...
+    },
+    {
+      "id": "si_yyyy",
+      "subscription": "sub_yyyy",
+      "price_product": "prod_yyyy",
+      "product_name": "Another Product",
+      "price_amount": 2000,
+      "currency": "jpy",
+      ...
     }
   ]
 }
+
 ```
 
 ## インストール方法
