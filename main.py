@@ -52,7 +52,7 @@ def flatten_json(nested_json, parent_key='', sep='_'):
             items.append((new_key, v))
     return dict(items)
 
-# サブスクリプションIDでItemsデータを1階層だけフラット化して返す関数
+# サブスクリプションIDでItemsデータを1階層だけフラット化し、関連するプロダクト情報も取得する関数
 def search_subscription_items_by_id(api_key: str, subscription_id: str):
     # StripeのAPIキーを設定
     stripe.api_key = api_key
@@ -64,7 +64,24 @@ def search_subscription_items_by_id(api_key: str, subscription_id: str):
         # items.data 内の要素を1階層だけフラット化
         flattened_items = []
         for item in subscription['items']['data']:
-            flattened_items.append(flatten_json(item))
+            flat_item = flatten_json(item)
+            
+            # price_product（フラット化前はprice.product）の値を使ってプロダクトを取得
+            price_product_id = flat_item.get('price_product')
+            if price_product_id:
+                try:
+                    product = stripe.Product.retrieve(price_product_id)
+                    flat_product = flatten_json(product, parent_key='product')  # フラット化
+                    # プロダクト情報をflat_itemに追加
+                    flat_item.update(flat_product)
+                except stripe.error.StripeError as e:
+                    logger.error(f"Stripe API error for product ID {price_product_id}: {str(e)}")
+                    raise HTTPException(status_code=400, detail=f"Stripe API error for product ID {price_product_id}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
+            
+            flattened_items.append(flat_item)
 
         return {"records": flattened_items}  # フラット化されたデータを返す
 
@@ -165,8 +182,11 @@ def get_subscriptions(api_key: str = Query(..., description="Stripe API key"),
 
 @app.get("/search_subscription_items")
 def get_subscription_items(api_key: str = Query(..., description="Stripe API key"),
-                           subscription_id: str = Query(..., description="Subscription ID")):
+                           subscription_id: Optional[str] = Query(None, description="Subscription ID")):
     try:
+        if subscription_id is None or subscription_id.strip() == "":
+            raise HTTPException(status_code=400, detail="Subscription ID is required")
+
         validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_id=subscription_id)
         subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_id)
         return subscription_items
