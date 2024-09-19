@@ -24,25 +24,41 @@ class SubscriptionSearchRequest(BaseModel):
     api_key: str
     cus_ids: List[str]  # 複数の顧客IDを受け取る
 
+from datetime import datetime, timezone, timedelta
+
+# JSTのタイムゾーン設定
+JST = timezone(timedelta(hours=9))
+
 def flatten_dict(data: dict, parent_key: str = '', sep: str = '_'):
     """
-    ネストされた辞書を平坦化する関数
+    ネストされた辞書を再帰的に平坦化し、リストはカンマ区切りの文字列に変換する関数。
+    特定のキーにあるUNIXタイムスタンプをJSTでの日時に変換する機能付き。
     """
     items = []
     for k, v in data.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        
         if isinstance(v, dict):
+            # 辞書の場合は再帰的にフラット化
             items.extend(flatten_dict(v, new_key, sep=sep).items())
+        
         elif isinstance(v, list):
-            # リストの場合はカンマ区切りで文字列に変換
-            items.append((new_key, ', '.join(map(str, v)) if v else None))
+            # リストが空でない場合、カンマ区切りの文字列に変換
+            if len(v) > 0:
+                items.append((new_key, ','.join(map(str, v))))
+            else:
+                # 空のリストはNoneにする
+                items.append((new_key, None))
+        
         else:
-            # UNIXタイムスタンプを検出し、JSTに変換
+            # UNIXタイムスタンプをJSTに変換する特定のキーをチェック
             if new_key in ['billing_cycle_anchor', 'created', 'current_period_end', 'current_period_start', 'start_date', 'trial_end', 'trial_start']:
                 # UNIXタイムスタンプをJSTに変換
                 v = datetime.fromtimestamp(v, tz=timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M:%S')
             items.append((new_key, v))
+    
     return dict(items)
+
 
 def search_customers_by_email(api_key: str, email_addresses: List[str]):
     # StripeのAPIキーを設定
