@@ -152,20 +152,31 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
     return {"records": results}
 
 # 新しい関数: サブスクリプションIDに連なる請求を取得
-def get_charges_by_subscription_id(api_key: str, subscription_ids: List[str]):
+def search_charges_by_subscription(api_key: str, subscription_ids: List[str]):
     stripe.api_key = api_key
     results = []
+
     for subscription_id in subscription_ids:
         try:
-            charges = stripe.Charge.list(subscription=subscription_id)
-            flattened_charges = [flatten_json(charge) for charge in charges.data]
-            results.extend(flattened_charges)
+            # Step 1: サブスクリプションIDに関連するインボイスを取得
+            invoices = stripe.Invoice.list(subscription=subscription_id)
+
+            for invoice in invoices:
+                # Step 2: インボイスIDに関連する支払い情報を取得
+                charges = stripe.Charge.list(invoice=invoice.id)
+
+                for charge in charges:
+                    # Step 3: 支払い情報をフラット化
+                    flat_charge = flatten_json(charge)
+                    results.append(flat_charge)
+
         except stripe.error.StripeError as e:
             logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
             raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+
     return {"records": results}
 
 # 新しい関数: サブスクリプションIDに連なるインボイスを取得
