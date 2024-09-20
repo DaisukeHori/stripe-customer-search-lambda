@@ -26,7 +26,19 @@ class SubscriptionSearchRequest(BaseModel):
 
 class SubscriptionItemSearchRequest(BaseModel):
     api_key: str
-    subscription_id: str  # 単一のサブスクリプションID
+    subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
+
+class ChargeSearchRequest(BaseModel):
+    api_key: str
+    subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
+
+class InvoiceSearchRequest(BaseModel):
+    api_key: str
+    subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
+
+class ChargeInvoiceSearchRequest(BaseModel):
+    api_key: str
+    charge_ids: List[str]  # 複数の請求IDを受け取る
 
 # フラット化のための関数
 def flatten_json(nested_json, parent_key='', sep='_'):
@@ -53,44 +65,45 @@ def flatten_json(nested_json, parent_key='', sep='_'):
     return dict(items)
 
 # サブスクリプションIDでItemsデータを1階層だけフラット化し、関連するプロダクト情報も取得する関数
-def search_subscription_items_by_id(api_key: str, subscription_id: str):
+def search_subscription_items_by_id(api_key: str, subscription_ids: List[str]):
     # StripeのAPIキーを設定
     stripe.api_key = api_key
 
-    try:
-        # サブスクリプションIDでサブスクリプションを検索
-        subscription = stripe.Subscription.retrieve(subscription_id)
+    results = []
+    for subscription_id in subscription_ids:
+        try:
+            # サブスクリプションIDでサブスクリプションを検索
+            subscription = stripe.Subscription.retrieve(subscription_id)
 
-        # items.data 内の要素を1階層だけフラット化
-        flattened_items = []
-        for item in subscription['items']['data']:
-            flat_item = flatten_json(item)
-            
-            # price_product（フラット化前はprice.product）の値を使ってプロダクトを取得
-            price_product_id = flat_item.get('price_product')
-            if price_product_id:
-                try:
-                    product = stripe.Product.retrieve(price_product_id)
-                    flat_product = flatten_json(product, parent_key='product')  # フラット化
-                    # プロダクト情報をflat_itemに追加
-                    flat_item.update(flat_product)
-                except stripe.error.StripeError as e:
-                    logger.error(f"Stripe API error for product ID {price_product_id}: {str(e)}")
-                    raise HTTPException(status_code=400, detail=f"Stripe API error for product ID {price_product_id}: {str(e)}")
-                except Exception as e:
-                    logger.error(f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
-                    raise HTTPException(status_code=500, detail=f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
-            
-            flattened_items.append(flat_item)
+            # items.data 内の要素を1階層だけフラット化
+            for item in subscription['items']['data']:
+                flat_item = flatten_json(item)
+                
+                # price_product（フラット化前はprice.product）の値を使ってプロダクトを取得
+                price_product_id = flat_item.get('price_product')
+                if price_product_id:
+                    try:
+                        product = stripe.Product.retrieve(price_product_id)
+                        flat_product = flatten_json(product, parent_key='product')  # フラット化
+                        # プロダクト情報をflat_itemに追加
+                        flat_item.update(flat_product)
+                    except stripe.error.StripeError as e:
+                        logger.error(f"Stripe API error for product ID {price_product_id}: {str(e)}")
+                        raise HTTPException(status_code=400, detail=f"Stripe API error for product ID {price_product_id}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
+                        raise HTTPException(status_code=500, detail=f"Unexpected error during search for product ID {price_product_id}: {str(e)}")
+                
+                results.append(flat_item)
 
-        return {"records": flattened_items}  # フラット化されたデータを返す
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
 
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+    return {"records": results}  # フラット化されたデータを返す
 
 # 顧客のメールアドレスで顧客情報を検索
 def search_customers_by_email(api_key: str, email_addresses: List[str]):
@@ -138,13 +151,68 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
 
     return {"records": results}
 
+# 新しい関数: サブスクリプションIDに連なる請求を取得
+def get_charges_by_subscription_id(api_key: str, subscription_ids: List[str]):
+    stripe.api_key = api_key
+    results = []
+    for subscription_id in subscription_ids:
+        try:
+            charges = stripe.Charge.list(subscription=subscription_id)
+            flattened_charges = [flatten_json(charge) for charge in charges.data]
+            results.extend(flattened_charges)
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+    return {"records": results}
+
+# 新しい関数: サブスクリプションIDに連なるインボイスを取得
+def get_invoices_by_subscription_id(api_key: str, subscription_ids: List[str]):
+    stripe.api_key = api_key
+    results = []
+    for subscription_id in subscription_ids:
+        try:
+            invoices = stripe.Invoice.list(subscription=subscription_id)
+            flattened_invoices = [flatten_json(invoice) for invoice in invoices.data]
+            results.extend(flattened_invoices)
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {subscription_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {subscription_id}: {str(e)}")
+    return {"records": results}
+
+# 新しい関数: 請求IDに連なるインボイスを取得
+def get_invoice_by_charge_id(api_key: str, charge_ids: List[str]):
+    stripe.api_key = api_key
+    results = []
+    for charge_id in charge_ids:
+        try:
+            charge = stripe.Charge.retrieve(charge_id)
+            if 'invoice' in charge:
+                invoice = stripe.Invoice.retrieve(charge.invoice)
+                flattened_invoice = flatten_json(invoice)
+                results.append(flattened_invoice)
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for charge ID {charge_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for charge ID {charge_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for charge ID {charge_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for charge ID {charge_id}: {str(e)}")
+    return {"records": results}
+
 @app.get("/search_customers")
 def get_customers(api_key: str = Query(..., description="Stripe API key"),
                   email_addresses: Optional[str] = Query(None, description="Comma separated list of email addresses")):
     try:
+        # メールアドレスが指定されていない場合、デフォルト値を使用
         if email_addresses is None or email_addresses.strip() == "":
             email_list = ["hori@revol.co.jp"]
         else:
+            # カンマ区切りのメールアドレスをリストに変換
             email_list = [email.strip() for email in email_addresses.split(',')]
 
         validated_request = SearchRequest(api_key=api_key, email_addresses=email_list)
@@ -163,9 +231,11 @@ def get_customers(api_key: str = Query(..., description="Stripe API key"),
 def get_subscriptions(api_key: str = Query(..., description="Stripe API key"),
                       cus_ids: Optional[str] = Query(None, description="Comma separated list of customer IDs")):
     try:
+        # 顧客IDが指定されていない場合、デフォルト値を使用
         if cus_ids is None or cus_ids.strip() == "":
             cus_id_list = ["cus_PCvnk7s61noGQW"]
         else:
+            # カンマ区切りの顧客IDをリストに変換
             cus_id_list = [cus_id.strip() for cus_id in cus_ids.split(',')]
 
         validated_request = SubscriptionSearchRequest(api_key=api_key, cus_ids=cus_id_list)
@@ -191,17 +261,9 @@ def get_subscription_items(api_key: str = Query(..., description="Stripe API key
             # カンマ区切りのsubscription_idsをリストに変換
             subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
 
-        results = []
-        for subscription_id in subscription_id_list:
-            # サブスクリプションIDでサブスクリプションのitemsを検索
-            validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_id=subscription_id)
-            subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_id)
-
-            # 各サブスクリプションIDの結果をリストに追加
-            results.extend(subscription_items["records"])
-
-        # フラット化されたサブスクリプションアイテムのリストを返す
-        return {"records": results}
+        validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
+        subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_ids)
+        return subscription_items
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
@@ -211,7 +273,77 @@ def get_subscription_items(api_key: str = Query(..., description="Stripe API key
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
 
+# 新しいエンドポイント: サブスクリプションIDに連なる請求を取得
+@app.get("/search_charges_by_subscription")
+def get_charges(api_key: str = Query(..., description="Stripe API key"),
+                subscription_ids: Optional[str] = Query(None, description="Comma separated list of Subscription IDs")):
+    try:
+        # subscription_idsが指定されていない場合、デフォルト値を使用
+        if subscription_ids is None or subscription_ids.strip() == "":
+            subscription_id_list = ["sub_1OOVw0APdno01lSPQNcrQCSC"]
+        else:
+            # カンマ区切りのsubscription_idsをリストに変換
+            subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
 
+        validated_request = ChargeSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
+        charges = get_charges_by_subscription_id(validated_request.api_key, validated_request.subscription_ids)
+        return charges
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
+# 新しいエンドポイント: サブスクリプションIDに連なるインボイスを取得
+@app.get("/search_invoices_by_subscription")
+def get_invoices(api_key: str = Query(..., description="Stripe API key"),
+                 subscription_ids: Optional[str] = Query(None, description="Comma separated list of Subscription IDs")):
+    try:
+        # subscription_idsが指定されていない場合、デフォルト値を使用
+        if subscription_ids is None or subscription_ids.strip() == "":
+            subscription_id_list = ["sub_1OOVw0APdno01lSPQNcrQCSC"]
+        else:
+            # カンマ区切りのsubscription_idsをリストに変換
+            subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
+
+        validated_request = InvoiceSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
+        invoices = get_invoices_by_subscription_id(validated_request.api_key, validated_request.subscription_ids)
+        return invoices
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
+# 新しいエンドポイント: 請求IDに連なるインボイスを取得
+@app.get("/search_invoice_by_charge")
+def get_invoice(api_key: str = Query(..., description="Stripe API key"),
+                charge_ids: Optional[str] = Query(None, description="Comma separated list of Charge IDs")):
+    try:
+        # charge_idsが指定されていない場合、エラーを返す
+        if charge_ids is None or charge_ids.strip() == "":
+            raise HTTPException(status_code=400, detail="Charge ID is required")
+        
+        # カンマ区切りのcharge_idsをリストに変換
+        charge_id_list = [charge_id.strip() for charge_id in charge_ids.split(',')]
+
+        validated_request = ChargeInvoiceSearchRequest(api_key=api_key, charge_ids=charge_id_list)
+        invoice = get_invoice_by_charge_id(validated_request.api_key, validated_request.charge_ids)
+        return invoice
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
 
 # Lambda用のハンドラー
 handler = Mangum(app)
