@@ -297,7 +297,7 @@ def get_charges(api_key: str = Query(..., description="Stripe API key"),
             subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
 
         validated_request = ChargeSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
-        charges = get_charges_by_subscription_id(validated_request.api_key, validated_request.subscription_ids)
+        charges = search_charges_by_subscription(validated_request.api_key, validated_request.subscription_ids)
         return charges
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
