@@ -325,7 +325,7 @@ GET /search_invoice_by_charge
 #### パラメータ
 
 - `api_key` (必須): StripeのAPIキー。
-- `charge_ids` (必須): カンマ区切りの請求ID。
+- `charge_ids` (オプション): カンマ区切りの請求ID。
 
 #### 機能説明
 
