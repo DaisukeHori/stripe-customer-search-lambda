@@ -337,12 +337,12 @@ def get_invoices(api_key: str = Query(..., description="Stripe API key"),
 def get_invoice(api_key: str = Query(..., description="Stripe API key"),
                 charge_ids: Optional[str] = Query(None, description="Comma separated list of Charge IDs")):
     try:
-        # charge_idsが指定されていない場合、エラーを返す
+        # charge_idsが指定されていない場合、デフォルト値を使用
         if charge_ids is None or charge_ids.strip() == "":
-            raise HTTPException(status_code=400, detail="Charge ID is required")
-        
-        # カンマ区切りのcharge_idsをリストに変換
-        charge_id_list = [charge_id.strip() for charge_id in charge_ids.split(',')]
+            charge_id_list = ["ch_3QPcaNAPdno01lSP0ZhfiKYJ"]
+        else:
+            # カンマ区切りのcharge_idsをリストに変換
+            charge_id_list = [charge_id.strip() for charge_id in charge_ids.split(',')]
 
         validated_request = ChargeInvoiceSearchRequest(api_key=api_key, charge_ids=charge_id_list)
         invoice = get_invoice_by_charge_id(validated_request.api_key, validated_request.charge_ids)
@@ -355,6 +355,7 @@ def get_invoice(api_key: str = Query(..., description="Stripe API key"),
     except Exception as e:
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
 
 # Lambda用のハンドラー
 handler = Mangum(app)
