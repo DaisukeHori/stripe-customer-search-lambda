@@ -1,10 +1,9 @@
----
-
 # Stripe 顧客・サブスクリプション・請求情報検索API
 
 ## 概要
 
-このプロジェクトは、**FastAPI**を使用して構築された、Stripeの顧客、サブスクリプション、請求、インボイス情報を検索するためのAPIです。取得したデータをフラット化し、JSON形式で返すことで、データの取り扱いを容易にします。AWS Lambda上での実行を想定しており、大量のIDに対する一括検索にも対応しています。
+このプロジェクトは、**FastAPI**を使用して構築された、Stripeの顧客、サブスクリプション、請求、インボイス情報を検索するためのAPIです。取得したデータをフラット化し、JSON形式で返すことで、データの取り扱いを容易にします。AWS Lambda上での実行を想定しており、大量のIDに対する一括検索にも対応しています。  
+さらに、**各種Stripeオブジェクト（Customer, Subscription, Charge, Invoiceなど）の`id`フィールド**を、**オブジェクトごとに`???_id`へリネームして返却**する機能を追加しています。
 
 ## 目次
 
@@ -39,10 +38,25 @@
 1. **顧客情報の検索**：メールアドレスから顧客情報を取得します。  
 2. **サブスクリプション情報の検索**：顧客IDからサブスクリプション情報を取得します。  
 3. **サブスクリプションアイテム情報の検索**：サブスクリプションIDからアイテム情報と関連するプロダクト情報を取得します。  
-4. **請求情報の検索**：サブスクリプションIDから関連する請求情報を取得します。  
+4. **請求情報の検索 (Charges)**：サブスクリプションIDから関連する請求情報を取得します。  
 5. **インボイス情報の検索**：サブスクリプションIDから関連するインボイス情報を取得します。  
 6. **請求IDからインボイス情報の検索**：請求IDから関連するインボイス情報を取得します。  
-7. **サブスクリプションIDからサブスクリプション情報の直接検索**：複数のサブスクリプションIDを一括で指定でき、結果をフラット化したJSON形式で返します。
+7. **サブスクリプションIDからサブスクリプション情報の直接検索**：複数のサブスクリプションIDを一括で指定し、結果をフラット化したJSON形式で返します。  
+
+### 変更点: `id`のリネーム
+
+Stripeのオブジェクトに含まれる `id` フィールドは、オブジェクトごとに以下の形式にリネームされます。
+
+- **Customer**: `id` → `cus_id`
+- **Subscription**: `id` → `sub_id`
+- **SubscriptionItem**: `id` → `si_id`
+- **Invoice**: `id` → `inv_id`
+- **Charge**: `id` → `ch_id`
+- **Product**: `id` → `prod_id`
+- **Price**: `id` → `price_id`
+- **Plan**: `id` → `plan_id`
+
+すべてのエンドポイントで返却されるJSONでは、元々の `id` フィールドが上記のように置換された状態で出力されるため、アプリケーション側での取り扱いが容易になります。
 
 ## アーキテクチャ
 
@@ -54,7 +68,8 @@
 
 ## エンドポイント詳細
 
-各エンドポイントは`GET`リクエストを受け付けます。以下に詳細を示します。
+各エンドポイントは`GET`リクエストを受け付けます。以下に詳細を示します。  
+**共通事項**: すべてのJSON出力において、Stripeオブジェクトの `id` が `???_id` に置き換わる点にご留意ください。  
 
 ---
 
@@ -139,24 +154,26 @@ curl -X GET "http://127.0.0.1:8000/search_subscriptions?api_key=sk_test_4eC39HqL
 {
   "records": [
     {
-      "id": "sub_abcdefg12345",
+      "sub_id": "sub_abcdefg12345",
       "customer": "cus_1234567890",
       "status": "active",
       "current_period_start": "2024/09/18 00:00:00",
       "current_period_end": "2024/10/18 00:00:00",
       "plan_amount": 5000,
       "plan_currency": "jpy",
-      "plan_interval": "month"
+      "plan_interval": "month",
+      "subscription_item_names": "BasicPlan AdditionalPlan"
     },
     {
-      "id": "sub_hijklmn67890",
+      "sub_id": "sub_hijklmn67890",
       "customer": "cus_0987654321",
       "status": "canceled",
       "current_period_start": "2023/08/01 00:00:00",
       "current_period_end": "2023/09/01 00:00:00",
       "plan_amount": 3000,
       "plan_currency": "jpy",
-      "plan_interval": "month"
+      "plan_interval": "month",
+      "subscription_item_names": "BasicPlan"
     }
   ]
 }
@@ -193,9 +210,10 @@ curl -X GET "http://127.0.0.1:8000/search_subscription_items?api_key=sk_test_4eC
 {
   "records": [
     {
-      "id": "si_1234567890",
+      "si_id": "si_1234567890",
       "subscription": "sub_abcdefg12345",
       "price_product": "prod_1234567890",
+      "product_prod_id": "prod_1234567890",
       "product_name": "Premium Plan",
       "price_amount": 5000,
       "currency": "jpy",
@@ -203,9 +221,10 @@ curl -X GET "http://127.0.0.1:8000/search_subscription_items?api_key=sk_test_4eC
       "product_active": true
     },
     {
-      "id": "si_0987654321",
+      "si_id": "si_0987654321",
       "subscription": "sub_hijklmn67890",
       "price_product": "prod_0987654321",
+      "product_prod_id": "prod_0987654321",
       "product_name": "Basic Plan",
       "price_amount": 3000,
       "currency": "jpy",
@@ -233,7 +252,8 @@ GET /search_charges_by_subscription
 
 #### 機能説明
 
-指定されたサブスクリプションIDに関連する請求情報（Charges）を取得します。
+指定されたサブスクリプションIDに関連する請求情報（Charges）を取得します。  
+レスポンス内で `ch_id` が請求（Charge）のIDであり、`inv_id` がインボイスのIDになります。
 
 #### リクエスト例
 
@@ -247,23 +267,23 @@ curl -X GET "http://127.0.0.1:8000/search_charges_by_subscription?api_key=sk_tes
 {
   "records": [
     {
-      "id": "ch_1234567890",
+      "ch_id": "ch_1234567890",
       "amount": 5000,
       "currency": "jpy",
       "customer": "cus_1234567890",
       "description": "Subscription charge",
-      "invoice": "in_1234567890",
+      "invoice": "inv_1234567890",
       "paid": true,
       "status": "succeeded",
       "created": "2023/05/01 10:00:00"
     },
     {
-      "id": "ch_0987654321",
+      "ch_id": "ch_0987654321",
       "amount": 3000,
       "currency": "jpy",
       "customer": "cus_0987654321",
       "description": "Subscription charge",
-      "invoice": "in_0987654321",
+      "invoice": "inv_0987654321",
       "paid": true,
       "status": "succeeded",
       "created": "2023/06/01 11:00:00"
@@ -289,7 +309,7 @@ GET /search_invoices_by_subscription
 
 #### 機能説明
 
-指定されたサブスクリプションIDに関連するインボイス情報を取得します。
+指定されたサブスクリプションIDに関連するインボイス情報を取得します。レスポンス内で `inv_id` がインボイスIDとして出力されます。
 
 #### リクエスト例
 
@@ -303,7 +323,7 @@ curl -X GET "http://127.0.0.1:8000/search_invoices_by_subscription?api_key=sk_te
 {
   "records": [
     {
-      "id": "in_1234567890",
+      "inv_id": "in_1234567890",
       "customer": "cus_1234567890",
       "subscription": "sub_abcdefg12345",
       "status": "paid",
@@ -314,7 +334,7 @@ curl -X GET "http://127.0.0.1:8000/search_invoices_by_subscription?api_key=sk_te
       "period_end": "2023/06/01 00:00:00"
     },
     {
-      "id": "in_0987654321",
+      "inv_id": "in_0987654321",
       "customer": "cus_0987654321",
       "subscription": "sub_hijklmn67890",
       "status": "paid",
@@ -341,11 +361,11 @@ GET /search_invoice_by_charge
 #### パラメータ
 
 - `api_key` (必須): StripeのAPIキー。  
-- `charge_ids` (オプション): カンマ区切りの請求ID。指定がない場合、例えば `"ch_3QPcaNAPdno01lSP0ZhfiKYJ"` などがデフォルトで使われます。
+- `charge_ids` (オプション): カンマ区切りの請求ID。指定がない場合、例として `"ch_3QPcaNAPdno01lSP0ZhfiKYJ"` などがデフォルトで使用されます。
 
 #### 機能説明
 
-指定された請求IDに関連するインボイス情報を取得します。
+指定された請求IDに関連するインボイス情報を取得します。こちらもインボイスのIDは `inv_id`、請求のIDは `ch_id` で返却されます。
 
 #### リクエスト例
 
@@ -359,7 +379,7 @@ curl -X GET "http://127.0.0.1:8000/search_invoice_by_charge?api_key=sk_test_4eC3
 {
   "records": [
     {
-      "id": "in_1234567890",
+      "inv_id": "in_1234567890",
       "charge": "ch_1234567890",
       "customer": "cus_1234567890",
       "subscription": "sub_abcdefg12345",
@@ -369,16 +389,12 @@ curl -X GET "http://127.0.0.1:8000/search_invoice_by_charge?api_key=sk_test_4eC3
       "created": "2023/05/01 09:55:00",
       "period_start": "2023/05/01 00:00:00",
       "period_end": "2023/06/01 00:00:00",
-      "lines": [
-        {
-          "description": "Monthly subscription fee",
-          "amount": 5000,
-          "currency": "jpy"
-        }
-      ]
+      "lines_0_description": "Monthly subscription fee",
+      "lines_0_amount": 5000,
+      "lines_0_currency": "jpy"
     },
     {
-      "id": "in_0987654321",
+      "inv_id": "in_0987654321",
       "charge": "ch_0987654321",
       "customer": "cus_0987654321",
       "subscription": "sub_hijklmn67890",
@@ -388,13 +404,9 @@ curl -X GET "http://127.0.0.1:8000/search_invoice_by_charge?api_key=sk_test_4eC3
       "created": "2023/06/01 10:55:00",
       "period_start": "2023/06/01 00:00:00",
       "period_end": "2023/07/01 00:00:00",
-      "lines": [
-        {
-          "description": "Monthly subscription fee",
-          "amount": 3000,
-          "currency": "jpy"
-        }
-      ]
+      "lines_0_description": "Monthly subscription fee",
+      "lines_0_amount": 3000,
+      "lines_0_currency": "jpy"
     }
   ]
 }
@@ -417,9 +429,7 @@ GET /search_subscriptions_by_id
 
 #### 機能説明
 
-1つまたは複数のサブスクリプションIDを直接指定し、それぞれのサブスクリプション情報を検索します。取得したサブスクリプション情報は**フラット化**されてJSON形式で返されます。  
-- デフォルト値が使用される場合は `["sub_1OOVw0APdno01lSPQNcrQCSC"]` のみの情報が取得されます。  
-- 複数のサブスクリプションIDをカンマ区切りで指定することにより、一括で検索が可能です。
+1つまたは複数のサブスクリプションIDを直接指定し、それぞれのサブスクリプション情報を検索します。取得したサブスクリプション情報は**フラット化**されるとともに、`id`が`sub_id`に置き換わります。
 
 #### リクエスト例
 
@@ -433,7 +443,7 @@ curl -X GET "http://127.0.0.1:8000/search_subscriptions_by_id?api_key=sk_test_4e
 {
   "records": [
     {
-      "id": "sub_abcdefg12345",
+      "sub_id": "sub_abcdefg12345",
       "object": "subscription",
       "customer": "cus_1234567890",
       "status": "active",
@@ -442,7 +452,7 @@ curl -X GET "http://127.0.0.1:8000/search_subscriptions_by_id?api_key=sk_test_4e
       ...
     },
     {
-      "id": "sub_hijklmn67890",
+      "sub_id": "sub_hijklmn67890",
       "object": "subscription",
       "customer": "cus_0987654321",
       "status": "canceled",
@@ -453,8 +463,6 @@ curl -X GET "http://127.0.0.1:8000/search_subscriptions_by_id?api_key=sk_test_4e
   ]
 }
 ```
-
-※ `...` の部分は省略しており、実際にはすべてのフィールドが**フラット化**されて返されます。
 
 ---
 
@@ -532,7 +540,8 @@ uvicorn main:app --reload
 
 ## リクエストとレスポンスの例
 
-各エンドポイントのリクエストとレスポンスの例は、[エンドポイント詳細](#エンドポイント詳細)セクションで確認できます。
+各エンドポイントのリクエストとレスポンスの例は、[エンドポイント詳細](#エンドポイント詳細)セクションで確認できます。  
+**特に`id`はすべて`???_id`にリネームされている点を、開発者の方はご注意ください。**
 
 ## エラーハンドリング
 
@@ -640,7 +649,8 @@ pytest --cov=./
 
 - **レート制限**：Stripe APIのレート制限に注意してください。一度に大量のリクエストを送信しないよう、適切な間隔を設けてください。  
 - **データの整合性**：取得したデータが最新であることを保証するため、キャッシュを適切に管理してください。  
-- **タイムゾーン**：日時情報はJSTに変換されていますが、他のタイムゾーンが必要な場合はコードを調整してください。
+- **タイムゾーン**：日時情報はJSTに変換されていますが、他のタイムゾーンが必要な場合はコードを調整してください。  
+- **IDリネーム時の参照**：Stripeオブジェクトの`id`を参照するコードを組む際、`???_id`に変換されている点に注意してください。
 
 ## 貢献方法
 
