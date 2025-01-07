@@ -129,7 +129,7 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
 
     return {"records": results}
 
-# 顧客IDでサブスクリプション情報を検索
+# 顧客IDでサブスクリプション情報を検索 (改変箇所あり)
 def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
     stripe.api_key = api_key
 
@@ -146,6 +146,25 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
 
         for subscription in subscriptions:
+            # --- ここから改変: subscription_item_names を付与するための処理を追加 ---
+            item_names = []
+            # subscription["items"]["data"] から product.name を取得して結合
+            for item in subscription["items"]["data"]:
+                product_id = item["price"]["product"]
+                try:
+                    product_obj = stripe.Product.retrieve(product_id)
+                    item_names.append(product_obj["name"])
+                except stripe.error.StripeError as e:
+                    logger.error(f"Stripe API error for product ID {product_id}: {str(e)}")
+                    raise HTTPException(status_code=400, detail=f"Stripe API error for product ID {product_id}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Unexpected error during search for product ID {product_id}: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Unexpected error during search for product ID {product_id}: {str(e)}")
+            
+            # スペース区切りで連結した文字列を subscription["subscription_item_names"] に追加
+            subscription["subscription_item_names"] = " ".join(item_names)
+            # --- ここまで改変 ---
+
             flat_subscription = flatten_json(subscription.to_dict())
             results.append(flat_subscription)
 
