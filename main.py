@@ -28,6 +28,10 @@ class SubscriptionItemSearchRequest(BaseModel):
     api_key: str
     subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
 
+class SubscriptionDirectSearchRequest(BaseModel):
+    api_key: str
+    subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
+
 class ChargeSearchRequest(BaseModel):
     api_key: str
     subscription_ids: List[str]  # 複数のサブスクリプションIDを受け取る
@@ -129,7 +133,7 @@ def search_customers_by_email(api_key: str, email_addresses: List[str]):
 
     return {"records": results}
 
-# 顧客IDでサブスクリプション情報を検索 (改変箇所あり)
+# 顧客IDでサブスクリプション情報を検索
 def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
     stripe.api_key = api_key
 
@@ -146,9 +150,8 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
             raise HTTPException(status_code=500, detail=f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
 
         for subscription in subscriptions:
-            # --- ここから改変: subscription_item_names を付与するための処理を追加 ---
+            # 例: subscription_item_names をつける処理 (既存の例)
             item_names = []
-            # subscription["items"]["data"] から product.name を取得して結合
             for item in subscription["items"]["data"]:
                 product_id = item["price"]["product"]
                 try:
@@ -160,14 +163,30 @@ def search_subscriptions_by_customer_ids(api_key: str, cus_ids: List[str]):
                 except Exception as e:
                     logger.error(f"Unexpected error during search for product ID {product_id}: {str(e)}")
                     raise HTTPException(status_code=500, detail=f"Unexpected error during search for product ID {product_id}: {str(e)}")
-            
-            # スペース区切りで連結した文字列を subscription["subscription_item_names"] に追加
-            subscription["subscription_item_names"] = " ".join(item_names)
-            # --- ここまで改変 ---
 
+            subscription["subscription_item_names"] = " ".join(item_names)
             flat_subscription = flatten_json(subscription.to_dict())
             results.append(flat_subscription)
 
+    return {"records": results}
+
+# 新しい関数: サブスクリプションID からサブスクリプション情報を検索してフラット出力
+def search_subscriptions_by_ids(api_key: str, subscription_ids: List[str]):
+    stripe.api_key = api_key
+    results = []
+    for sub_id in subscription_ids:
+        try:
+            # 単一のサブスクリプションを取得
+            subscription = stripe.Subscription.retrieve(sub_id)
+            # フラット化
+            flat_subscription = flatten_json(subscription.to_dict())
+            results.append(flat_subscription)
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for subscription ID {sub_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for subscription ID {sub_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for subscription ID {sub_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for subscription ID {sub_id}: {str(e)}")
     return {"records": results}
 
 # 新しい関数: サブスクリプションIDに連なる請求を取得
@@ -294,6 +313,32 @@ def get_subscription_items(api_key: str = Query(..., description="Stripe API key
         validated_request = SubscriptionItemSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
         subscription_items = search_subscription_items_by_id(validated_request.api_key, validated_request.subscription_ids)
         return subscription_items
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+
+# 新しいエンドポイント: サブスクリプションID からサブスクリプション情報を検索しフラットなJSONを出力
+@app.get("/search_subscriptions_by_id")
+def get_subscriptions_by_id(api_key: str = Query(..., description="Stripe API key"),
+                            subscription_ids: Optional[str] = Query(None, description="Comma separated list of Subscription IDs")):
+    try:
+        # subscription_ids が未入力の場合は sub_1OOVw0APdno01lSPQNcrQCSC
+        if subscription_ids is None or subscription_ids.strip() == "":
+            subscription_id_list = ["sub_1OOVw0APdno01lSPQNcrQCSC"]
+        else:
+            # カンマ区切りのサブスクリプションIDをリストに変換
+            subscription_id_list = [sub_id.strip() for sub_id in subscription_ids.split(',')]
+
+        # 入力バリデーション
+        validated_request = SubscriptionDirectSearchRequest(api_key=api_key, subscription_ids=subscription_id_list)
+        # 実際の検索処理
+        subscriptions = search_subscriptions_by_ids(validated_request.api_key, validated_request.subscription_ids)
+        return subscriptions
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
