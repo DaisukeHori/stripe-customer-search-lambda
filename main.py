@@ -373,6 +373,176 @@ def get_subscriptions(api_key: str = Query(..., description="Stripe API key"),
     except Exception as e:
         logger.error(f"Unexpected server error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
+def search_subscriptions_fulldata_by_customer_ids(api_key: str, cus_ids: List[str]):
+    """
+    顧客IDからサブスクリプションを取得し、以下の追加情報を取得して返す:
+      - 各SubscriptionItem の Product名, Price名 等
+      - 次回のインボイス (upcoming invoice)
+      - これまで発行されたインボイス一覧
+      - 必要に応じて計算（例: 税額など）
+    """
+    stripe.api_key = api_key
+    results = []
+
+    for cus_id in cus_ids:
+        try:
+            # 該当顧客の全サブスクリプションを取得
+            subscriptions = stripe.Subscription.list(customer=cus_id)
+
+            for subscription in subscriptions.auto_paging_iter():
+                # 1) Subscriptionの基本情報 → sub_idにrename
+                subscription_dict = rename_id_field(subscription.to_dict(), "subscription")
+
+                # 2) SubscriptionItemごとに product を取得し、「商品名」「価格情報」をわかりやすい形式に置換
+                items_expanded = []
+                for item in subscription.items.data:
+                    # item "id" → "si_id"
+                    item_dict = rename_id_field(item.to_dict(), "subscription_item")
+
+                    # price, product を取得し、わかる形に差し替え
+                    price_id = item_dict.get("price", {}).get("id")  # priceオブジェクトのID
+                    product_id = item_dict.get("price", {}).get("product")
+                    if product_id:
+                        try:
+                            product_obj = stripe.Product.retrieve(product_id)
+                            # productのid → prod_id
+                            product_dict = rename_id_field(product_obj.to_dict(), "product")
+                            # 商品名を格納
+                            item_dict["product_name"] = product_dict.get("name", "Unnamed Product")
+                        except Exception as e:
+                            logger.error(f"Error retrieving product {product_id}: {str(e)}")
+                            item_dict["product_name"] = f"Error retrieving product {product_id}"
+
+                    if price_id:
+                        # priceのnicknameや単価など
+                        try:
+                            price_obj = stripe.Price.retrieve(price_id)
+                            item_dict["price_nickname"] = price_obj.get("nickname")
+                            item_dict["price_unit_amount"] = price_obj.get("unit_amount")  # 例: 100 → 100円
+                            item_dict["price_currency"] = price_obj.get("currency")
+                        except Exception as e:
+                            logger.error(f"Error retrieving price {price_id}: {str(e)}")
+                            item_dict["price_nickname"] = None
+
+                    items_expanded.append(item_dict)
+
+                subscription_dict["items_expanded"] = items_expanded
+
+                # 3) 次回のインボイス(プレビュー)を取得
+                #   subscriptionがactive等であれば upcoming invoice が取れる場合がある
+                try:
+                    upcoming_invoice = stripe.Invoice.upcoming(
+                        subscription=subscription.id
+                    )
+                    if upcoming_invoice:
+                        subscription_dict["next_invoice_preview"] = {
+                            "amount_due": upcoming_invoice.get("amount_due"),
+                            "currency": upcoming_invoice.get("currency"),
+                            "next_invoice_date": datetime.fromtimestamp(
+                                upcoming_invoice.get("due_date", 0), tz=timezone.utc
+                            ).astimezone(JST).strftime('%Y/%m/%d %H:%M:%S') if upcoming_invoice.get("due_date") else None,
+                            "lines": []
+                        }
+                        # line_itemsを見やすくまとめる例
+                        for line in upcoming_invoice.lines:
+                            subscription_dict["next_invoice_preview"]["lines"].append({
+                                "description": line.get("description"),
+                                "amount": line.get("amount"),
+                                "quantity": line.get("quantity"),
+                                "price_id": line.get("price", {}).get("id"),
+                            })
+                except stripe.error.InvalidRequestError:
+                    # 次回の請求書が存在しない場合など、エラーになることがある
+                    subscription_dict["next_invoice_preview"] = None
+
+                # 4) これまでのインボイス一覧を取得
+                invoices_data = []
+                try:
+                    invoices = stripe.Invoice.list(subscription=subscription.id)
+                    for inv in invoices.auto_paging_iter():
+                        inv_dict = rename_id_field(inv.to_dict(), "invoice")
+                        # 必要に応じてフラット化や追加情報取得など可能
+                        invoices_data.append({
+                            "inv_id": inv_dict["inv_id"],
+                            "status": inv_dict.get("status"),
+                            "amount_paid": inv_dict.get("amount_paid"),
+                            "amount_due": inv_dict.get("amount_due"),
+                            "currency": inv_dict.get("currency"),
+                            # 日付は必要に応じてフォーマット
+                            "created_at": datetime.fromtimestamp(
+                                inv.created, tz=timezone.utc
+                            ).astimezone(JST).strftime('%Y/%m/%d %H:%M:%S'),
+                        })
+                except Exception as e:
+                    logger.error(f"Error retrieving invoices for subscription {subscription.id}: {str(e)}")
+
+                subscription_dict["invoices"] = invoices_data
+
+                # 他にも追加で計算したい内容などあればここで処理
+                # 例: 総額に対する消費税計算など
+                # 現在のプラン合計 * 10% のように計算できるが、Stripeが実際には自動税制御することもある
+                # ここでは例示として items_expanded の合計にざっくり10%計算をつける
+                try:
+                    monthly_total = 0
+                    for item_e in items_expanded:
+                        if item_e.get("price_unit_amount") is not None and isinstance(item_e.get("quantity"), int):
+                            monthly_total += item_e["price_unit_amount"] * item_e["quantity"]
+                    subscription_dict["calculated_monthly_total"] = monthly_total  # 税抜き額
+                    subscription_dict["calculated_monthly_tax"] = int(monthly_total * 0.1)  # 10%
+                    subscription_dict["calculated_monthly_grand_total"] = subscription_dict["calculated_monthly_total"] + subscription_dict["calculated_monthly_tax"]
+                except Exception as e:
+                    logger.error(f"Error calculating monthly total for subscription {subscription.id}: {str(e)}")
+                    subscription_dict["calculated_monthly_total"] = None
+                    subscription_dict["calculated_monthly_tax"] = None
+                    subscription_dict["calculated_monthly_grand_total"] = None
+
+                results.append(subscription_dict)
+
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe API error for customer ID {cus_id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Stripe API error for customer ID {cus_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unexpected error during search for customer ID {cus_id}: {str(e)}")
+
+    return {"records": results}
+
+
+@app.get("/search_subscriptions_fulldata")
+def get_subscriptions_fulldata(
+    api_key: str = Query(..., description="Stripe API key"),
+    cus_ids: Optional[str] = Query(None, description="カンマ区切りの顧客IDリスト")
+):
+    """
+    顧客IDをもとにサブスクリプションを検索し、
+    - サブスクリプション情報
+    - SubscriptionItemごとの商品名、価格
+    - 次回請求書(upcoming invoice)のプレビュー
+    - 既存インボイス一覧
+    - 必要に応じた計算結果（例: 消費税10% など）
+    をまとめて返却する。
+    """
+    try:
+        if not cus_ids or cus_ids.strip() == "":
+            # なにも指定がなければサンプル顧客IDを使う
+            cus_id_list = ["cus_PCvnk7s61noGQW"]
+        else:
+            cus_id_list = [c.strip() for c in cus_ids.split(",")]
+
+        validated_request = SubscriptionSearchRequest(api_key=api_key, cus_ids=cus_id_list)
+        return search_subscriptions_fulldata_by_customer_ids(
+            validated_request.api_key,
+            validated_request.cus_ids
+        )
+
+    except ValidationError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.")
 
 
 @app.get("/search_subscription_items")
