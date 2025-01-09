@@ -1,3 +1,5 @@
+---
+
 # Stripe 顧客・サブスクリプション・請求情報検索API
 
 ## 概要
@@ -17,6 +19,7 @@
   - [5. インボイス情報の検索](#5-インボイス情報の検索)
   - [6. 請求IDからインボイス情報の検索](#6-請求idからインボイス情報の検索)
   - [7. サブスクリプションIDからサブスクリプション情報の直接検索](#7-サブスクリプションidからサブスクリプション情報の直接検索)
+  - [8. フルデータ検索 (search_subscriptions_fulldata)](#8-フルデータ検索-search_subscriptions_fulldata)
 - [インストール方法](#インストール方法)
 - [環境設定](#環境設定)
 - [使用方法](#使用方法)
@@ -42,6 +45,7 @@
 5. **インボイス情報の検索**：サブスクリプションIDから関連するインボイス情報を取得します。  
 6. **請求IDからインボイス情報の検索**：請求IDから関連するインボイス情報を取得します。  
 7. **サブスクリプションIDからサブスクリプション情報の直接検索**：複数のサブスクリプションIDを一括で指定し、結果をフラット化したJSON形式で返します。  
+8. **フルデータ検索 (search_subscriptions_fulldata)**：顧客IDからサブスクリプション全情報を取得し、商品名や次回請求プレビューなどの詳細をまとめて返却します。  
 
 ### 変更点: `id`のリネーム
 
@@ -466,6 +470,102 @@ curl -X GET "http://127.0.0.1:8000/search_subscriptions_by_id?api_key=sk_test_4e
 
 ---
 
+### 8. フルデータ検索 (search_subscriptions_fulldata)
+
+#### URL
+
+```
+GET /search_subscriptions_fulldata
+```
+
+#### パラメータ
+
+- `api_key` (必須): StripeのAPIキー。  
+- `cus_ids` (オプション): カンマ区切りの顧客ID。指定がない場合、デフォルトで`"cus_PCvnk7s61noGQW"`が使用されます。
+
+#### 機能説明
+
+顧客IDからサブスクリプション全情報を取得し、  
+- **SubscriptionItemごとの商品名や価格情報**  
+- **次回請求 (upcoming invoice) のプレビュー**  
+- **これまでのインボイス情報**  
+- **月額合計や簡易的な消費税10%計算**  
+
+などを**まとめて返却**します。レスポンス内では、サブスクリプションの各Itemsを `items_expanded` として持ち、そこに商品名や価格などの詳細が含まれます。
+
+#### リクエスト例
+
+```bash
+curl -X GET "http://127.0.0.1:8000/search_subscriptions_fulldata?api_key=sk_test_4eC39HqLyjWDarjtT1zdp7dc&cus_ids=cus_1234567890,cus_0987654321"
+```
+
+#### レスポンス例（抜粋）
+
+```json
+{
+  "records": [
+    {
+      "sub_id": "sub_abcdefg12345",
+      "customer": "cus_1234567890",
+      "status": "active",
+      "items_expanded": [
+        {
+          "si_id": "si_XXXXX",
+          "product_name": "Test Subscription Product 01",
+          "price_nickname": null,
+          "price_unit_amount": 100,
+          "price_currency": "jpy",
+          "quantity": 2
+        },
+        {
+          "si_id": "si_YYYYY",
+          "product_name": "Test Subscription Product 02",
+          "price_nickname": null,
+          "price_unit_amount": 33,
+          "price_currency": "jpy",
+          "quantity": 1
+        }
+      ],
+      "invoices": [
+        {
+          "inv_id": "in_XXXXXXX",
+          "status": "paid",
+          "amount_paid": 200,
+          "amount_due": 200,
+          "currency": "jpy",
+          "created_at": "2024/12/26 11:59:00"
+        },
+        ...
+      ],
+      "next_invoice_preview": {
+        "amount_due": 133,
+        "currency": "jpy",
+        "next_invoice_date": "2025/01/26 00:00:00",
+        "lines": [
+          {
+            "description": null,
+            "amount": 133,
+            "quantity": 1,
+            "price_id": "price_1OOVBYAPdno01lSP1B9oRb05"
+          }
+        ]
+      },
+      "calculated_monthly_total": 133,
+      "calculated_monthly_tax": 13,
+      "calculated_monthly_grand_total": 146
+    }
+  ]
+}
+```
+
+- `calculated_monthly_total`: サブスクリプションアイテムの小計（例：税抜き）
+- `calculated_monthly_tax`: 仮で10%を掛け合わせた消費税（StripeのTax機能とは別の参考値）
+- `calculated_monthly_grand_total`: 小計と消費税の合計
+- `invoices`: これまでに発行されたインボイス一覧  
+- `next_invoice_preview`: 次回請求予定があれば、そのプレビュー
+
+---
+
 ## インストール方法
 
 ### 前提条件
@@ -704,4 +804,6 @@ pytest --cov=./
 ご質問やご提案がございましたら、以下の方法でご連絡ください。
 
 - **Issue Tracker**: [GitHub Issues](https://github.com/yourusername/your-repo-name/issues)  
-- **プルリクエスト**: ご提案やバグ修正はプルリクエストとして提出してください。
+- **プルリクエスト**: ご提案やバグ修正はプルリクエストとして提出してください。  
+
+---
